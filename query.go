@@ -26,6 +26,14 @@ func constructMutation(v interface{}, variables map[string]interface{}) string {
 	return "mutation" + query
 }
 
+func constructSubscription(v interface{}, variables map[string]interface{}) string {
+	query := query(v)
+	if len(variables) > 0 {
+		return "subscription(" + queryArguments(variables) + ")" + query
+	}
+	return "subscription" + query
+}
+
 // queryArguments constructs a minified arguments string for variables.
 //
 // E.g., map[string]interface{}{"a": Int(123), "b": NewBoolean(true)} -> "$a:Int!$b:Boolean".
