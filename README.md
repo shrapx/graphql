@@ -278,6 +278,115 @@ fmt.Printf("Created a %v star review: %v\n", m.CreateReview.Stars, m.CreateRevie
 // Created a 5 star review: This is a great movie!
 ```
 
+### Subcriptions
+
+Usage
+-----
+
+Construct a Subscription client, specifying the GraphQL server URL.
+
+```Go
+client := graphql.NewSubscriptionClient("wss://example.com/graphql")
+defer client.Close()
+
+// Subscribe subscriptions
+// ...
+// finally run the client
+client.Run()
+```
+
+#### Subscribe
+
+To make a GraphQL subscription, you need to define a corresponding Go type.
+
+For example, to make the following GraphQL query:
+
+```GraphQL
+query {
+	me {
+		name
+	}
+}
+```
+
+You can define this variable:
+
+```Go
+var query struct {
+	Me struct {
+		Name graphql.String
+	}
+}
+```
+
+Then call `client.Subscribe`, passing a pointer to it:
+
+```Go
+subscriptionId, err := client.Subscribe(&query, nil, func(dataValue *json.RawMessage, errValue error) error {
+	if errValue != nil {
+		// handle error
+		// if returns error, it will failback to `onError` event
+		return nil
+	}
+	data := query{}
+	err := json.Unmarshal(dataValue, &data)
+
+	fmt.Println(query.Me.Name)
+
+	// Output: Luke Skywalker
+})
+
+if err != nil {
+	// Handle error.
+}
+
+// you can unsubscribe the subscription while the client is running
+client.Unsubscribe(subscriptionId)
+```
+
+### Authentication
+
+The subscription client is authenticated with GraphQL server through connection params:
+
+```Go
+client := graphql.NewSubscriptionClient("wss://example.com/graphql").
+	WithConnectionParams(map[string]interface{}{
+		"headers": map[string]string{
+				"authentication": "...",
+		},
+	})
+
+```
+
+### Options
+
+```Go
+client.
+	//  write timeout of websocket client
+	WithTimeout(time.Minute). 
+	// When the websocket server was stopped, the client will retry connecting every second until timeout
+	WithRetryTimeout(time.Minute).
+	// sets loging function to print out received messages. By default, nothing is printed
+	WithLog(log.Println).
+	// max size of response message
+	WithReadLimit(10*1024*1024)
+```
+
+### Events
+
+```Go
+// OnConnected event is triggered when the websocket connected to GraphQL server sucessfully
+client.OnConnected(fn func())
+
+// OnDisconnected event is triggered when the websocket server was stil down after retry timeout
+client.OnDisconnected(fn func())
+
+// OnConnected event is triggered when there is any connection error. This is bottom exception handler level
+// If this function is empty, or returns nil, the error is ignored
+// If returns error, the websocket connection will be terminated
+client.OnError(onError func(sc *SubscriptionClient, err error) error)
+```
+
 Directories
 -----------
 
