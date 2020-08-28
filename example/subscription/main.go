@@ -10,6 +10,7 @@ import (
 	"flag"
 	"log"
 	"os"
+	"time"
 
 	"github.com/hgiasac/graphql"
 )
@@ -30,23 +31,18 @@ func run() error {
 			"headers": map[string]string{
 				"x-hasura-admin-secret": "hasura",
 			},
-		}).WithLogger(log.Println)
+		}).WithLog(log.Println).
+		OnError(func(sc *graphql.SubscriptionClient, err error) error {
+			return err
+		})
 
 	defer client.Close()
 
 	/*
-		subscription {
-			hero {
+		subscription($limit: Int!) {
+			users(limit: $limit) {
 				id
 				name
-			}
-			character(id: "1003") {
-				name
-				friends {
-					name
-					__typename
-				}
-				appearsIn
 			}
 		}
 	*/
@@ -64,7 +60,7 @@ func run() error {
 
 		if err != nil {
 			log.Println("error", err)
-			return nil
+			return err
 		}
 
 		log.Println("data:", string(*data))
@@ -75,7 +71,17 @@ func run() error {
 		panic(err)
 	}
 
-	return client.Run()
+	go func() {
+		for {
+			time.Sleep(5 * time.Second)
+			client.Reset()
+		}
+	}()
+
+	go client.Run()
+
+	time.Sleep(time.Minute)
+	return nil
 }
 
 // print pretty prints v to stdout. It panics on any error.
