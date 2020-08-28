@@ -33,6 +33,7 @@ func run() error {
 			},
 		}).WithLog(log.Println).
 		OnError(func(sc *graphql.SubscriptionClient, err error) error {
+			log.Print("err", err)
 			return err
 		})
 
@@ -50,7 +51,7 @@ func run() error {
 		User struct {
 			ID   graphql.ID
 			Name graphql.String
-		} `graphql:"users(limit: $limit)"`
+		} `graphql:"users(limit: $limit, order_by: { id: desc })"`
 	}
 	type Int int
 	variables := map[string]interface{}{
@@ -59,11 +60,10 @@ func run() error {
 	_, err := client.Subscribe(sub, variables, func(data *json.RawMessage, err error) error {
 
 		if err != nil {
-			log.Println("error", err)
-			return err
+			return nil
 		}
 
-		log.Println("data:", string(*data))
+		time.Sleep(10 * time.Second)
 		return nil
 	})
 
@@ -74,7 +74,8 @@ func run() error {
 	go func() {
 		for {
 			time.Sleep(5 * time.Second)
-			client.Reset()
+			log.Println("reseting...")
+			go client.Reset()
 		}
 	}()
 

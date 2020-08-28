@@ -69,10 +69,11 @@ type WebsocketConn interface {
 	SetReadLimit(limit int64)
 }
 
+type handlerFunc func(data *json.RawMessage, err error) error
 type subscription struct {
 	query     string
 	variables map[string]interface{}
-	handler   func(data *json.RawMessage, err error) error
+	handler   func(data *json.RawMessage, err error)
 	started   Boolean
 }
 
@@ -94,6 +95,7 @@ type SubscriptionClient struct {
 	onConnected      func()
 	onDisconnected   func()
 	onError          func(sc *SubscriptionClient, err error) error
+	errorChan        chan error
 }
 
 func NewSubscriptionClient(url string) *SubscriptionClient {
@@ -104,6 +106,7 @@ func NewSubscriptionClient(url string) *SubscriptionClient {
 		subscriptions: make(map[string]*subscription),
 		createConn:    newWebsocketConn,
 		retryTimeout:  time.Minute,
+		errorChan:     make(chan error),
 	}
 }
 
@@ -267,7 +270,7 @@ func (sc *SubscriptionClient) do(v interface{}, variables map[string]interface{}
 	sub := subscription{
 		query:     query,
 		variables: variables,
-		handler:   handler,
+		handler:   sc.wrapHandler(handler),
 	}
 
 	// if the websocket client is running, start subscription immediately
@@ -318,12 +321,12 @@ func (sc *SubscriptionClient) startSubscription(id string, sub *subscription) er
 	return nil
 }
 
-func (sc *SubscriptionClient) handleHandlerError(err error) error {
-	if err != nil && sc.onError != nil {
-		return sc.onError(sc, err)
+func (sc *SubscriptionClient) wrapHandler(fn handlerFunc) func(data *json.RawMessage, err error) {
+	return func(data *json.RawMessage, err error) {
+		if errValue := fn(data, err); errValue != nil {
+			sc.errorChan <- errValue
+		}
 	}
-
-	return nil
 }
 
 // Run start websocket client and subscriptions. If this function is run with goroutine, it can be stopped after closed
@@ -345,14 +348,19 @@ func (sc *SubscriptionClient) Run() error {
 		select {
 		case <-sc.context.Done():
 			return nil
+		case e := <-sc.errorChan:
+			if sc.onError != nil {
+				if err := sc.onError(sc, e); err != nil {
+					return err
+				}
+			}
 		default:
 
 			var message OperationMessage
 			if err := sc.conn.ReadJSON(&message); err != nil {
 				// manual EOF check
 				if err == io.EOF || strings.Contains(err.Error(), "EOF") {
-					sc.isRunning = false
-					break
+					return sc.Reset()
 				}
 				if sc.onError != nil {
 					if err = sc.onError(sc, err); err != nil {
@@ -386,21 +394,15 @@ func (sc *SubscriptionClient) Run() error {
 
 				err = json.Unmarshal(message.Payload, &out)
 				if err != nil {
-					if err = sc.handleHandlerError(sub.handler(nil, err)); err != nil {
-						return err
-					}
+					go sub.handler(nil, err)
 					continue
 				}
 				if len(out.Errors) > 0 {
-					if err = sc.handleHandlerError(sub.handler(nil, out.Errors)); err != nil {
-						return err
-					}
+					go sub.handler(nil, out.Errors)
 					continue
 				}
 
-				if err = sc.handleHandlerError(sub.handler(out.Data, nil)); err != nil {
-					return err
-				}
+				go sub.handler(out.Data, nil)
 			case GQL_CONNECTION_ERROR:
 			case GQL_COMPLETE:
 				sc.Unsubscribe(message.ID)
@@ -470,7 +472,6 @@ func (sc *SubscriptionClient) terminate() error {
 
 // Reset restart websocket connection and subscriptions
 func (sc *SubscriptionClient) Reset() error {
-
 	if !sc.isRunning {
 		return nil
 	}
@@ -487,8 +488,7 @@ func (sc *SubscriptionClient) Reset() error {
 	}
 	sc.cancel()
 
-	go sc.Run()
-	return nil
+	return sc.Run()
 }
 
 // Close closes all subscription channel and websocket as well
