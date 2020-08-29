@@ -32,6 +32,7 @@ func run() error {
 				"x-hasura-admin-secret": "hasura",
 			},
 		}).WithLog(log.Println).
+		WithoutLogTypes(graphql.GQL_DATA, graphql.GQL_CONNECTION_KEEP_ALIVE).
 		OnError(func(sc *graphql.SubscriptionClient, err error) error {
 			log.Print("err", err)
 			return err
