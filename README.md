@@ -1,7 +1,7 @@
 graphql
 =======
 
-[![Build Status](https://travis-ci.org/shurcooL/graphql.svg?branch=master)](https://travis-ci.org/shurcooL/graphql) [![GoDoc](https://godoc.org/github.com/shurcooL/graphql?status.svg)](https://godoc.org/github.com/shurcooL/graphql)
+[![Build Status](https://travis-ci.org/shurcooL/graphql.svg?branch=master)](https://travis-ci.org/shurcooL/graphql) [![GoDoc](https://godoc.org/github.com/hgiasac/graphql?status.svg)](https://pkg.go.dev/github.com/hgiasac/graphql)
 
 Package `graphql` provides a GraphQL client implementation.
 
@@ -344,7 +344,7 @@ if err != nil {
 client.Unsubscribe(subscriptionId)
 ```
 
-### Authentication
+#### Authentication
 
 The subscription client is authenticated with GraphQL server through connection params:
 
@@ -358,7 +358,7 @@ client := graphql.NewSubscriptionClient("wss://example.com/graphql").
 
 ```
 
-### Options
+#### Options
 
 ```Go
 client.
@@ -372,7 +372,7 @@ client.
 	WithReadLimit(10*1024*1024)
 ```
 
-### Events
+#### Events
 
 ```Go
 // OnConnected event is triggered when the websocket connected to GraphQL server sucessfully
@@ -385,6 +385,18 @@ client.OnDisconnected(fn func())
 // If this function is empty, or returns nil, the error is ignored
 // If returns error, the websocket connection will be terminated
 client.OnError(onError func(sc *SubscriptionClient, err error) error)
+```
+
+### With operation name
+
+Operatiion name is still on API decision plan https://github.com/shurcooL/graphql/issues/12. However, in my opinion separate methods are easier choice to avoid breaking changes
+
+```Go
+func (c *Client) NamedQuery(ctx context.Context, name string, q interface{}, variables map[string]interface{})
+
+func (c *Client) NamedMutate(ctx context.Context, name string, q interface{}, variables map[string]interface{})
+
+func (sc *SubscriptionClient) NamedSubscribe(name string, v interface{}, variables map[string]interface{}, handler func(message *json.RawMessage, err error) error) (string, error)
 ```
 
 Directories
