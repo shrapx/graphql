@@ -202,9 +202,7 @@ func (sc *SubscriptionClient) init() error {
 		// allow custom websocket client
 		if sc.conn == nil {
 			conn, err = newWebsocketConn(sc)
-			if err != nil {
-				err = fmt.Errorf("create websocket failed: %v", err)
-			} else {
+			if err == nil {
 				sc.conn = conn
 			}
 		}
@@ -225,10 +223,14 @@ func (sc *SubscriptionClient) init() error {
 			}
 			return err
 		}
-		if sc.log != nil {
-			sc.log(err, "retry in second....")
-		}
+		sc.printLog(err.Error() + ". retry in second....")
 		time.Sleep(time.Second)
+	}
+}
+
+func (sc *SubscriptionClient) printLog(message interface{}) {
+	if sc.log != nil {
+		sc.log(message)
 	}
 }
 
@@ -362,6 +364,16 @@ func (sc *SubscriptionClient) Run() error {
 				if err == io.EOF || strings.Contains(err.Error(), "EOF") {
 					return sc.Reset()
 				}
+				closeStatus := websocket.CloseStatus(err)
+				if closeStatus == websocket.StatusNormalClosure {
+					// close event from websocket client, exiting...
+					return nil
+				}
+				if closeStatus != -1 {
+					sc.printLog(fmt.Sprintf("%s. Retry connecting...", err))
+					return sc.Reset()
+				}
+
 				if sc.onError != nil {
 					if err = sc.onError(sc, err); err != nil {
 						return err
@@ -370,9 +382,7 @@ func (sc *SubscriptionClient) Run() error {
 				continue
 			}
 
-			if sc.log != nil {
-				sc.log(message)
-			}
+			sc.printLog(message)
 
 			switch message.Type {
 			case GQL_ERROR:
