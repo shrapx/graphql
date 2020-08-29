@@ -369,7 +369,10 @@ client.
 	// sets loging function to print out received messages. By default, nothing is printed
 	WithLog(log.Println).
 	// max size of response message
-	WithReadLimit(10*1024*1024)
+	WithReadLimit(10*1024*1024).
+	// these operation event logs won't be printed
+	WithoutLogTypes(graphql.GQL_DATA, graphql.GQL_CONNECTION_KEEP_ALIVE)
+
 ```
 
 #### Events

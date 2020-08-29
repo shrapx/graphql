@@ -42,6 +42,10 @@ const (
 	GQL_CONNECTION_ACK OperationMessageType = "connection_ack"
 	// Client sends this message to terminate the connection.
 	GQL_CONNECTION_TERMINATE OperationMessageType = "connection_terminate"
+	// Unknown operation type, for logging only
+	GQL_UNKNOWN OperationMessageType = "unknown"
+	// Internal status, for logging only
+	GQL_INTERNAL OperationMessageType = "internal"
 )
 
 type OperationMessage struct {
@@ -96,6 +100,7 @@ type SubscriptionClient struct {
 	onDisconnected   func()
 	onError          func(sc *SubscriptionClient, err error) error
 	errorChan        chan error
+	disabledLogTypes []OperationMessageType
 }
 
 func NewSubscriptionClient(url string) *SubscriptionClient {
@@ -154,6 +159,12 @@ func (sc *SubscriptionClient) WithRetryTimeout(timeout time.Duration) *Subscript
 // WithLog sets loging function to print out received messages. By default, nothing is printed
 func (sc *SubscriptionClient) WithLog(logger func(args ...interface{})) *SubscriptionClient {
 	sc.log = logger
+	return sc
+}
+
+// WithoutLogTypes these operation types won't be printed
+func (sc *SubscriptionClient) WithoutLogTypes(types ...OperationMessageType) *SubscriptionClient {
+	sc.disabledLogTypes = types
 	return sc
 }
 
@@ -223,15 +234,22 @@ func (sc *SubscriptionClient) init() error {
 			}
 			return err
 		}
-		sc.printLog(err.Error() + ". retry in second....")
+		sc.printLog(err.Error()+". retry in second....", GQL_INTERNAL)
 		time.Sleep(time.Second)
 	}
 }
 
-func (sc *SubscriptionClient) printLog(message interface{}) {
-	if sc.log != nil {
-		sc.log(message)
+func (sc *SubscriptionClient) printLog(message interface{}, opType OperationMessageType) {
+	if sc.log == nil {
+		return
 	}
+	for _, ty := range sc.disabledLogTypes {
+		if ty == opType {
+			return
+		}
+	}
+
+	sc.log(message)
 }
 
 func (sc *SubscriptionClient) sendConnectionInit() (err error) {
@@ -250,6 +268,7 @@ func (sc *SubscriptionClient) sendConnectionInit() (err error) {
 		Payload: bParams,
 	}
 
+	sc.printLog(msg, GQL_CONNECTION_INIT)
 	return sc.conn.WriteJSON(msg)
 }
 
@@ -315,6 +334,7 @@ func (sc *SubscriptionClient) startSubscription(id string, sub *subscription) er
 		Payload: payload,
 	}
 
+	sc.printLog(msg, GQL_START)
 	if err := sc.conn.WriteJSON(msg); err != nil {
 		return err
 	}
@@ -370,7 +390,7 @@ func (sc *SubscriptionClient) Run() error {
 					return nil
 				}
 				if closeStatus != -1 {
-					sc.printLog(fmt.Sprintf("%s. Retry connecting...", err))
+					sc.printLog(fmt.Sprintf("%s. Retry connecting...", err), GQL_INTERNAL)
 					return sc.Reset()
 				}
 
@@ -382,12 +402,12 @@ func (sc *SubscriptionClient) Run() error {
 				continue
 			}
 
-			sc.printLog(message)
-
 			switch message.Type {
 			case GQL_ERROR:
+				sc.printLog(message, GQL_ERROR)
 				fallthrough
 			case GQL_DATA:
+				sc.printLog(message, GQL_DATA)
 				id, err := uuid.Parse(message.ID)
 				if err != nil {
 					continue
@@ -414,14 +434,19 @@ func (sc *SubscriptionClient) Run() error {
 
 				go sub.handler(out.Data, nil)
 			case GQL_CONNECTION_ERROR:
+				sc.printLog(message, GQL_CONNECTION_ERROR)
 			case GQL_COMPLETE:
+				sc.printLog(message, GQL_COMPLETE)
 				sc.Unsubscribe(message.ID)
 			case GQL_CONNECTION_KEEP_ALIVE:
+				sc.printLog(message, GQL_CONNECTION_KEEP_ALIVE)
 			case GQL_CONNECTION_ACK:
+				sc.printLog(message, GQL_CONNECTION_ACK)
 				if sc.onConnected != nil {
 					sc.onConnected()
 				}
 			default:
+				sc.printLog(message, GQL_UNKNOWN)
 			}
 		}
 	}
@@ -458,6 +483,7 @@ func (sc *SubscriptionClient) stopSubscription(id string) error {
 			Type: GQL_STOP,
 		}
 
+		sc.printLog(msg, GQL_STOP)
 		if err := sc.conn.WriteJSON(msg); err != nil {
 			return err
 		}
@@ -474,6 +500,7 @@ func (sc *SubscriptionClient) terminate() error {
 			Type: GQL_CONNECTION_TERMINATE,
 		}
 
+		sc.printLog(msg, GQL_CONNECTION_TERMINATE)
 		return sc.conn.WriteJSON(msg)
 	}
 
