@@ -302,7 +302,7 @@ To make a GraphQL subscription, you need to define a corresponding Go type.
 For example, to make the following GraphQL query:
 
 ```GraphQL
-query {
+subscription {
 	me {
 		name
 	}
@@ -312,7 +312,7 @@ query {
 You can define this variable:
 
 ```Go
-var query struct {
+var subscription struct {
 	Me struct {
 		Name graphql.String
 	}
