@@ -72,7 +72,7 @@ type WebsocketConn interface {
 type subscription struct {
 	query     string
 	variables map[string]interface{}
-	handler   func(data *json.RawMessage, err error) error
+	handler   func(data json.RawMessage, err error) error
 	started   Boolean
 }
 
@@ -251,7 +251,7 @@ func (sc *SubscriptionClient) sendConnectionInit() (err error) {
 // Subscribe sends start message to server and open a channel to receive data.
 // The handler callback function will receive raw message data or error. If the call return error, onError event will be triggered
 // The function returns subscription ID and error. You can use subscription ID to unsubscribe the subscription
-func (sc *SubscriptionClient) Subscribe(v interface{}, variables map[string]interface{}, handler func(message *json.RawMessage, err error) error) (string, error) {
+func (sc *SubscriptionClient) Subscribe(v interface{}, variables map[string]interface{}, handler func(message json.RawMessage, err error) error) (string, error) {
 	id := uuid.New().String()
 	query := constructSubscription(v, variables)
 
@@ -370,7 +370,7 @@ func (sc *SubscriptionClient) Run() error {
 					continue
 				}
 				var out struct {
-					Data   *json.RawMessage
+					Data   json.RawMessage
 					Errors errors
 					//Extensions interface{} // Unused.
 				}
