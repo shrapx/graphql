@@ -6,6 +6,7 @@ import (
 	"io"
 	"reflect"
 	"sort"
+	"strings"
 
 	"github.com/hgiasac/graphql/ident"
 )
@@ -125,7 +126,16 @@ func writeQuery(w io.Writer, t reflect.Type, inline bool) {
 				if ok {
 					io.WriteString(w, value)
 				} else {
-					io.WriteString(w, ident.ParseMixedCaps(f.Name).ToLowerCamelCase())
+					tag, ok := f.Tag.Lookup("json")
+					commaIdx := strings.Index(tag, ",")
+					if commaIdx > 0 {
+						tag = tag[:commaIdx]
+					}
+					if ok && tag != "" && tag != "-" {
+						io.WriteString(w, tag)
+					} else {
+						io.WriteString(w, ident.ParseMixedCaps(f.Name).ToLowerCamelCase())
+					}
 				}
 			}
 			writeQuery(w, f.Type, inlineField)
