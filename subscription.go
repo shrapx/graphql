@@ -324,11 +324,9 @@ func (sc *SubscriptionClient) Run() error {
 	}
 
 	// lazily start subscriptions
-	for k, v := range sc.subscriptions {
-		if err := sc.startSubscription(k, v); err != nil {
-			sc.Unsubscribe(k)
-			return err
-		}
+	err := sc.startSubscriptions()
+	if err != nil {
+		return err
 	}
 	sc.setIsRunning(true)
 
@@ -365,7 +363,10 @@ func (sc *SubscriptionClient) Run() error {
 				if err != nil {
 					continue
 				}
+
+				sc.subscribersMu.Lock()
 				sub, ok := sc.subscriptions[id.String()]
+				sc.subscribersMu.Unlock()
 				if !ok {
 					continue
 				}
@@ -413,19 +414,35 @@ func (sc *SubscriptionClient) Run() error {
 	return sc.Reset()
 }
 
+func (sc* SubscriptionClient) startSubscriptions() error {
+	sc.subscribersMu.Lock()
+	defer sc.subscribersMu.Unlock()
+	for k, v := range sc.subscriptions {
+		if err := sc.startSubscription(k, v); err != nil {
+			sc.unsubscribe(k)
+			return err
+		}
+	}
+	return nil
+}
+
 // Unsubscribe sends stop message to server and close subscription channel
 // The input parameter is subscription ID that is returned from Subscribe function
 func (sc *SubscriptionClient) Unsubscribe(id string) error {
+	sc.subscribersMu.Lock()
+	defer sc.subscribersMu.Unlock()
+	return sc.unsubscribe(id)
+}
+
+func (sc *SubscriptionClient) unsubscribe(id string) error {
 	_, ok := sc.subscriptions[id]
 	if !ok {
-		return fmt.Errorf("subscription id %s doesn't not exist", id)
+		return fmt.Errorf("subscription id %s does not exist", id)
 	}
 
 	err := sc.stopSubscription(id)
 
-	sc.subscribersMu.Lock()
 	delete(sc.subscriptions, id)
-	sc.subscribersMu.Unlock()
 	return err
 }
 
@@ -466,10 +483,12 @@ func (sc *SubscriptionClient) Reset() error {
 		return nil
 	}
 
+	sc.subscribersMu.Lock()
 	for id, sub := range sc.subscriptions {
 		_ = sc.stopSubscription(id)
 		sub.started = false
 	}
+	sc.subscribersMu.Unlock()
 
 	if sc.conn != nil {
 		_ = sc.terminate()
@@ -485,8 +504,10 @@ func (sc *SubscriptionClient) Reset() error {
 // Close closes all subscription channel and websocket as well
 func (sc *SubscriptionClient) Close() (err error) {
 	sc.setIsRunning(false)
+	sc.subscribersMu.Lock()
+	defer sc.subscribersMu.Unlock()
 	for id := range sc.subscriptions {
-		if err = sc.Unsubscribe(id); err != nil {
+		if err = sc.unsubscribe(id); err != nil {
 			sc.cancel()
 			return err
 		}
