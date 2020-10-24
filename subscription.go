@@ -78,22 +78,23 @@ type subscription struct {
 
 // SubscriptionClient is a GraphQL subscription client.
 type SubscriptionClient struct {
-	url              string
-	conn             WebsocketConn
-	connectionParams map[string]interface{}
-	context          context.Context
-	subscriptions    map[string]*subscription
-	cancel           context.CancelFunc
-	subscribersMu    sync.Mutex
-	timeout          time.Duration
-	isRunning        Boolean
-	readLimit        int64 // max size of response message. Default 10 MB
-	log              func(args ...interface{})
-	createConn       func(sc *SubscriptionClient) (WebsocketConn, error)
-	retryTimeout     time.Duration
-	onConnected      func()
-	onDisconnected   func()
-	onError          func(sc *SubscriptionClient, err error) error
+	url                string
+	conn               WebsocketConn
+	connectionParams   map[string]interface{}
+	connectionParamsMu sync.Mutex
+	context            context.Context
+	subscriptions      map[string]*subscription
+	cancel             context.CancelFunc
+	subscribersMu      sync.Mutex
+	timeout            time.Duration
+	isRunning          Boolean
+	readLimit          int64 // max size of response message. Default 10 MB
+	log                func(args ...interface{})
+	createConn         func(sc *SubscriptionClient) (WebsocketConn, error)
+	retryTimeout       time.Duration
+	onConnected        func()
+	onDisconnected     func()
+	onError            func(sc *SubscriptionClient, err error) error
 }
 
 func NewSubscriptionClient(url string) *SubscriptionClient {
@@ -132,6 +133,8 @@ func (sc *SubscriptionClient) WithWebSocket(fn func(sc *SubscriptionClient) (Web
 // WithConnectionParams updates connection params for sending to server through GQL_CONNECTION_INIT event
 // It's usually used for authentication handshake
 func (sc *SubscriptionClient) WithConnectionParams(params map[string]interface{}) *SubscriptionClient {
+	sc.connectionParamsMu.Lock()
+	defer sc.connectionParamsMu.Unlock()
 	sc.connectionParams = params
 	return sc
 }
@@ -230,13 +233,9 @@ func (sc *SubscriptionClient) init() error {
 }
 
 func (sc *SubscriptionClient) sendConnectionInit() (err error) {
-	var bParams []byte = nil
-	if sc.connectionParams != nil {
-
-		bParams, err = json.Marshal(sc.connectionParams)
-		if err != nil {
-			return
-		}
+	bParams, err := sc.marshalConnectionParams()
+	if err != nil {
+		return
 	}
 
 	// send connection_init event to the server
@@ -246,6 +245,19 @@ func (sc *SubscriptionClient) sendConnectionInit() (err error) {
 	}
 
 	return sc.conn.WriteJSON(msg)
+}
+
+func (sc *SubscriptionClient) marshalConnectionParams() (params []byte, err error) {
+	sc.connectionParamsMu.Lock()
+	defer sc.connectionParamsMu.Unlock()
+	if sc.connectionParams != nil {
+		params, err = json.Marshal(sc.connectionParams)
+		if err != nil {
+			return
+		}
+		return params, nil
+	}
+	return nil, nil
 }
 
 // Subscribe sends start message to server and open a channel to receive data.
@@ -414,7 +426,7 @@ func (sc *SubscriptionClient) Run() error {
 	return sc.Reset()
 }
 
-func (sc* SubscriptionClient) startSubscriptions() error {
+func (sc *SubscriptionClient) startSubscriptions() error {
 	sc.subscribersMu.Lock()
 	defer sc.subscribersMu.Unlock()
 	for k, v := range sc.subscriptions {
