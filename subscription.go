@@ -220,6 +220,12 @@ func (sc *SubscriptionClient) init() error {
 		}
 
 		if now.Add(sc.retryTimeout).Before(time.Now()) {
+			// close sc.conn on timeout, allows to reconnect
+			_ = sc.terminate()
+			if sc.conn != nil {
+				_ = sc.conn.Close()
+				sc.conn = nil
+			}
 			if sc.onDisconnected != nil {
 				sc.onDisconnected()
 			}
