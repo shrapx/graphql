@@ -24,7 +24,8 @@ const (
 	// Client sends this message after plain websocket connection to start the communication with the server
 	GQL_CONNECTION_INIT OperationMessageType = "connection_init"
 	// The server may responses with this message to the GQL_CONNECTION_INIT from client, indicates the server rejected the connection.
-	GQL_CONNECTION_ERROR OperationMessageType = "conn_err"
+	GQL_CONNECTION_ERROR OperationMessageType = "connection_error"
+	GQL_CONNECTION_ERROR_2 OperationMessageType = "conn_err"
 	// Client sends this message to execute GraphQL operation
 	GQL_START OperationMessageType = "start"
 	// Client sends this message in order to stop a running GraphQL operation execution (for example: unsubscribe)
@@ -348,7 +349,7 @@ func (sc *SubscriptionClient) Run() error {
 	}
 	sc.setIsRunning(true)
 
-	for sc.isRunning {
+	for {
 		select {
 		case <-sc.context.Done():
 			return nil
@@ -358,8 +359,8 @@ func (sc *SubscriptionClient) Run() error {
 			if err := sc.conn.ReadJSON(&message); err != nil {
 				// manual EOF check
 				if err == io.EOF || strings.Contains(err.Error(), "EOF") {
-					sc.isRunning = false
-					break
+					sc.setIsRunning(false)
+					return nil
 				}
 				if sc.onError != nil {
 					if err = sc.onError(sc, err); err != nil {
@@ -374,9 +375,7 @@ func (sc *SubscriptionClient) Run() error {
 			}
 
 			switch message.Type {
-			case GQL_ERROR:
-				fallthrough
-			case GQL_DATA:
+			case GQL_ERROR, GQL_DATA:
 				id, err := uuid.Parse(message.ID)
 				if err != nil {
 					continue
@@ -411,7 +410,7 @@ func (sc *SubscriptionClient) Run() error {
 				if err = sc.handleHandlerError(sub.handler(out.Data, nil)); err != nil {
 					return err
 				}
-			case GQL_CONNECTION_ERROR:
+			case GQL_CONNECTION_ERROR, GQL_CONNECTION_ERROR_2:
 			case GQL_COMPLETE:
 				sc.Unsubscribe(message.ID)
 			case GQL_CONNECTION_KEEP_ALIVE:
@@ -423,13 +422,6 @@ func (sc *SubscriptionClient) Run() error {
 			}
 		}
 	}
-
-	// if the running status is false, stop retrying
-	if !sc.isRunning {
-		return nil
-	}
-
-	return sc.Reset()
 }
 
 func (sc *SubscriptionClient) startSubscriptions() error {
@@ -515,7 +507,6 @@ func (sc *SubscriptionClient) Reset() error {
 	}
 	sc.cancel()
 
-	go sc.Run()
 	return nil
 }
 
