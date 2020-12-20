@@ -164,7 +164,7 @@ func (sc *SubscriptionClient) WithReadLimit(limit int64) *SubscriptionClient {
 	return sc
 }
 
-// OnConnected event is triggered when there is any connection error. This is bottom exception handler level
+// OnError event is triggered when there is any connection error. This is bottom exception handler level
 // If this function is empty, or returns nil, the error is ignored
 // If returns error, the websocket connection will be terminated
 func (sc *SubscriptionClient) OnError(onError func(sc *SubscriptionClient, err error) error) *SubscriptionClient {
@@ -222,11 +222,7 @@ func (sc *SubscriptionClient) init() error {
 
 		if now.Add(sc.retryTimeout).Before(time.Now()) {
 			// close sc.conn on timeout, allows to reconnect
-			_ = sc.terminate()
-			if sc.conn != nil {
-				_ = sc.conn.Close()
-				sc.conn = nil
-			}
+			sc.closeConnection()
 			if sc.onDisconnected != nil {
 				sc.onDisconnected()
 			}
@@ -444,6 +440,16 @@ func (sc *SubscriptionClient) Unsubscribe(id string) error {
 	return sc.unsubscribe(id)
 }
 
+func (sc *SubscriptionClient) UnsubscribeAll() {
+	sc.subscribersMu.Lock()
+	defer sc.subscribersMu.Unlock()
+	for id := range sc.subscriptions {
+		if err := sc.unsubscribe(id); err != nil {
+			sc.log(err.Error()) // log unsubscribe errors
+		}
+	}
+}
+
 func (sc *SubscriptionClient) unsubscribe(id string) error {
 	_, ok := sc.subscriptions[id]
 	if !ok {
@@ -467,11 +473,23 @@ func (sc *SubscriptionClient) stopSubscription(id string) error {
 		if err := sc.conn.WriteJSON(msg); err != nil {
 			return err
 		}
-
 	}
-
 	return nil
 }
+
+func (sc *SubscriptionClient) stopSubscriptions() error {
+	if !sc.isRunning {
+		return fmt.Errorf("connection is not running")
+	}
+	sc.subscribersMu.Lock()
+	defer sc.subscribersMu.Unlock()
+	for id, sub := range sc.subscriptions {
+		_ = sc.stopSubscription(id)
+		sub.started = false
+	}
+	return nil
+}
+
 
 func (sc *SubscriptionClient) terminate() error {
 	if sc.conn != nil {
@@ -482,53 +500,35 @@ func (sc *SubscriptionClient) terminate() error {
 
 		return sc.conn.WriteJSON(msg)
 	}
-
 	return nil
 }
 
-// Reset restart websocket connection and subscriptions
-func (sc *SubscriptionClient) Reset() error {
-
-	if !sc.isRunning {
-		return nil
-	}
-
-	sc.subscribersMu.Lock()
-	for id, sub := range sc.subscriptions {
-		_ = sc.stopSubscription(id)
-		sub.started = false
-	}
-	sc.subscribersMu.Unlock()
-
+func (sc *SubscriptionClient) closeConnection() {
+	_ = sc.terminate()
 	if sc.conn != nil {
-		_ = sc.terminate()
 		_ = sc.conn.Close()
 		sc.conn = nil
 	}
-	sc.cancel()
-
-	return nil
 }
 
-// Close closes all subscription channel and websocket as well
-func (sc *SubscriptionClient) Close() (err error) {
-	sc.setIsRunning(false)
-	sc.subscribersMu.Lock()
-	defer sc.subscribersMu.Unlock()
-	for id := range sc.subscriptions {
-		if err = sc.unsubscribe(id); err != nil {
-			sc.cancel()
-			return err
-		}
+// Reset restart websocket connection and subscriptions
+func (sc *SubscriptionClient) Reset() {
+	_ = sc.stopSubscriptions()
+	sc.closeConnection()
+	if sc.cancel != nil {
+		sc.cancel()
 	}
-	if sc.conn != nil {
-		_ = sc.terminate()
-		err = sc.conn.Close()
-		sc.conn = nil
-	}
-	sc.cancel()
+}
 
-	return
+// Close closes all subscriptions and websocket as well
+func (sc *SubscriptionClient) Close() error {
+	sc.setIsRunning(false)
+	sc.UnsubscribeAll()
+	sc.closeConnection()
+	if sc.cancel != nil {
+		sc.cancel()
+	}
+	return nil
 }
 
 // default websocket handler implementation using https://github.com/nhooyr/websocket
